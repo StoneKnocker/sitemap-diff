@@ -361,8 +361,8 @@ async function handleNewsCommand(chatId, rssManager) {
     const allNewUrls = [];
     for (const url of feeds) {
       try {
-        // 使用 addFeed 方法，它会处理已存在的情况并强制更新
-        const result = await rssManager.addFeed(url);
+        // 使用 addFeed 方法强制更新，忽略每日限制
+        const result = await rssManager.addFeed(url, true);
         if (result.success && result.newUrls && result.newUrls.length > 0) {
           allNewUrls.push(...result.newUrls);
           console.log(`发现 ${result.newUrls.length} 个新URL from ${url}`);

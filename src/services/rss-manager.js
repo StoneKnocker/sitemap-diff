@@ -119,20 +119,21 @@ export class RSSManager {
   /**
    * 下载并保存 sitemap 文件
    * @param {string} url - sitemap 的 URL
+   * @param {boolean} forceUpdate - 是否强制更新，忽略每日限制（用于手动触发）
    * @returns {Promise<Object>} 结果对象
    */
-  async downloadSitemap(url) {
+  async downloadSitemap(url, forceUpdate = false) {
     try {
-      console.log(`尝试下载 sitemap: ${url}`);
+      console.log(`尝试下载 sitemap: ${url}${forceUpdate ? ' (强制更新)' : ''}`);
 
       const urlHash = this.generateUrlHash(url);
       const today = new Date().toISOString().split('T')[0].replace(/-/g, '');
 
-      // 检查今天是否已经更新过
+      // 检查今天是否已经更新过（除非强制更新）
       const lastUpdateKey = `last_update_${urlHash}`;
       const lastUpdate = await this.kv.get(lastUpdateKey);
 
-      if (lastUpdate === today) {
+      if (!forceUpdate && lastUpdate === today) {
         // 今天已经更新过，比较现有文件
         const currentContent = await this.kv.get(`sitemap_current_${urlHash}`);
         const latestContent = await this.kv.get(`sitemap_latest_${urlHash}`);
@@ -231,17 +232,18 @@ export class RSSManager {
   /**
    * 添加 sitemap 监控
    * @param {string} url - sitemap 的 URL
+   * @param {boolean} forceUpdate - 是否强制更新，忽略每日限制（用于手动触发）
    * @returns {Promise<Object>} 结果对象
    */
-  async addFeed(url) {
+  async addFeed(url, forceUpdate = false) {
     try {
-      console.log(`尝试添加 sitemap 监控: ${url}`);
+      console.log(`尝试添加 sitemap 监控: ${url}${forceUpdate ? ' (强制更新)' : ''}`);
 
       // 验证是否已存在
       const feeds = await this.getFeeds();
       if (!feeds.includes(url)) {
         // 如果是新的 feed，先尝试下载
-        const result = await this.downloadSitemap(url);
+        const result = await this.downloadSitemap(url, forceUpdate);
         if (!result.success) {
           return result;
         }
@@ -255,14 +257,14 @@ export class RSSManager {
           errorMsg: result.errorMsg || "成功添加"
         };
       } else {
-        // 如果 feed 已存在，仍然尝试下载（可能是新的一天）
-        const result = await this.downloadSitemap(url);
+        // 如果 feed 已存在，仍然尝试下载（可能是新的一天或强制更新）
+        const result = await this.downloadSitemap(url, forceUpdate);
         if (!result.success) {
           return result;
         }
         return {
           ...result,
-          errorMsg: "已存在的feed更新成功"
+          errorMsg: forceUpdate ? "强制更新完成" : "已存在的feed更新成功"
         };
       }
 

@@ -21,7 +21,8 @@
       "WebFetch",
       "WebSearch",
       "Bash(ls:*)",
-      "WebFetch(domain:stoneknocker.github.io)"
+      "WebFetch(domain:stoneknocker.github.io)",
+      "Bash(rg:*)"
     ],
     "deny": []
   }

@@ -4,7 +4,7 @@
  * 使用 Cloudflare KV 存储替代文件系统
  */
 
-import { parseXML, extractURLs } from './xml-parser.js';
+import { parseXML, extractURLs, extractSitemapUrls, isValidSitemap } from './xml-parser.js';
 
 export class RSSManager {
   constructor(kvStorage) {
@@ -38,6 +38,82 @@ export class RSSManager {
       hash = ((hash << 5) + hash) + url.charCodeAt(i);
     }
     return (hash >>> 0).toString(36); // 转换为base36字符串，更短
+  }
+
+  /**
+   * 处理sitemap索引文件，提取并监控所有子sitemap
+   * @param {string} indexUrl - sitemap索引URL
+   * @param {string} indexContent - sitemap索引内容
+   * @returns {Promise<Object>} 处理结果
+   */
+  async processSitemapIndex(indexUrl, indexContent) {
+    try {
+      console.log(`处理sitemap索引: ${indexUrl}`);
+      
+      const subSitemaps = extractSitemapUrls(indexContent);
+      console.log(`发现 ${subSitemaps.length} 个子sitemap`);
+
+      if (subSitemaps.length === 0) {
+        return {
+          success: false,
+          errorMsg: "sitemap索引中没有找到子sitemap",
+          newUrls: []
+        };
+      }
+
+      let totalNewUrls = [];
+      let successCount = 0;
+      let errorCount = 0;
+
+      // 处理每个子sitemap
+      for (const subUrl of subSitemaps) {
+        try {
+          // 确保URL是完整的（处理相对路径）
+          let absoluteUrl = subUrl;
+          if (!subUrl.startsWith('http')) {
+            const baseUrl = new URL(indexUrl);
+            absoluteUrl = new URL(subUrl, baseUrl.origin).href;
+          }
+
+          console.log(`处理子sitemap: ${absoluteUrl}`);
+          const result = await this.downloadSitemap(absoluteUrl);
+          
+          if (result.success) {
+            successCount++;
+            if (result.newUrls && result.newUrls.length > 0) {
+              totalNewUrls.push(...result.newUrls);
+            }
+          } else {
+            errorCount++;
+            console.warn(`子sitemap处理失败: ${absoluteUrl}, 原因: ${result.errorMsg}`);
+          }
+
+          // 添加延迟避免频率限制
+          await new Promise(resolve => setTimeout(resolve, 1000));
+
+        } catch (error) {
+          errorCount++;
+          console.error(`处理子sitemap失败: ${subUrl}`, error);
+        }
+      }
+
+      return {
+        success: true,
+        errorMsg: `处理完成: 成功${successCount}个, 失败${errorCount}个`,
+        newUrls: totalNewUrls,
+        subSitemaps: subSitemaps.length,
+        successCount,
+        errorCount
+      };
+
+    } catch (error) {
+      console.error(`处理sitemap索引失败: ${indexUrl}`, error);
+      return {
+        success: false,
+        errorMsg: `处理sitemap索引失败: ${error.message}`,
+        newUrls: []
+      };
+    }
   }
 
   /**
@@ -105,6 +181,15 @@ export class RSSManager {
         newContent = await new Response(decompressedStream).text();
       } else {
         newContent = await response.text();
+      }
+
+      // 检查是否为sitemap索引文件
+      const doc = parseXML(newContent);
+      const rootTag = doc.documentElement?.tagName?.toLowerCase();
+
+      if (rootTag === 'sitemapindex') {
+        console.log(`检测到sitemap索引文件: ${url}`);
+        return await this.processSitemapIndex(url, newContent);
       }
 
       let newUrls = [];

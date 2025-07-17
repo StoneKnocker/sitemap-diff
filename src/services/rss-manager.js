@@ -34,8 +34,9 @@ export class RSSManager {
   generateUrlHash(url) {
     // 使用简单的hash算法：djb2
     let hash = 5381;
-    for (let i = 0; i < url.length; i++) {
-      hash = ((hash << 5) + hash) + url.charCodeAt(i);
+    const cleanUrl = url.toLowerCase().replace(/\/$/, ''); // 标准化URL
+    for (let i = 0; i < cleanUrl.length; i++) {
+      hash = ((hash << 5) + hash) + cleanUrl.charCodeAt(i);
     }
     return (hash >>> 0).toString(36); // 转换为base36字符串，更短
   }
@@ -140,17 +141,26 @@ export class RSSManager {
 
         if (currentContent && latestContent) {
           const newUrls = this.compareSitemaps(currentContent, latestContent);
+          console.log(`📊 今日已更新，发现 ${newUrls.length} 个新URL`);
+          if (newUrls.length > 0) {
+            return {
+              success: true,
+              errorMsg: `今日已更新，发现 ${newUrls.length} 个新URL`,
+              datedFile: null,
+              newUrls
+            };
+          }
           return {
             success: true,
-            errorMsg: "今天已经更新过此sitemap, 但没发送",
+            errorMsg: "今日已更新，无新内容",
             datedFile: null,
-            newUrls
+            newUrls: []
           };
         }
 
         return {
           success: true,
-          errorMsg: "今天已经更新过此sitemap",
+          errorMsg: "今日已更新过此sitemap",
           datedFile: null,
           newUrls: []
         };

@@ -8,7 +8,8 @@ import { RSSManager } from './services/rss-manager.js';
 import {
   sendUpdateNotification,
   sendKeywordsSummary,
-  handleTelegramUpdate
+  handleTelegramUpdate,
+  sendDetailedReport
 } from './apps/telegram-bot.js';
 import { handleDiscordInteraction } from './apps/discord-bot.js';
 
@@ -64,8 +65,8 @@ async function performScheduledMonitoring(env) {
       return;
     }
 
-    // 用于存储所有新增的URL
-    const allNewUrls = [];
+    // 用于存储每个sitemap的变更信息
+    const sitemapChanges = [];
 
     for (const url of feeds) {
       try {
@@ -80,11 +81,19 @@ async function performScheduledMonitoring(env) {
             sitemapContent = await rssManager.getSitemapContent(url, 'dated');
           }
 
-          // 只有在有新URL时才发送更新通知
+          // 只有在有新URL时才记录变更
           if (result.newUrls && result.newUrls.length > 0) {
+            const domain = new URL(url).hostname;
+            sitemapChanges.push({
+              url,
+              domain,
+              newUrls: result.newUrls,
+              sitemapContent
+            });
+            
+            // 仍然发送单个sitemap的更新通知（保持原有功能）
             await sendUpdateNotification(url, result.newUrls, sitemapContent);
             console.log(`✨ 订阅源 ${url} 更新成功，发现 ${result.newUrls.length} 个新URL`);
-            allNewUrls.push(...result.newUrls);
           } else {
             console.log(`✅ 订阅源 ${url} 更新成功，无新增URL（静默模式）`);
           }
@@ -100,10 +109,13 @@ async function performScheduledMonitoring(env) {
       }
     }
 
-    // 发送关键词汇总
-    if (allNewUrls.length > 0) {
-      console.log(`📊 发送关键词汇总，共 ${allNewUrls.length} 个新URL`);
-      await sendKeywordsSummary(allNewUrls);
+    // 发送详细变更报告
+    if (sitemapChanges.length > 0) {
+      console.log(`📊 发送详细变更报告，共 ${sitemapChanges.length} 个sitemap有变更`);
+      
+      // 从telegram-bot.js导入新的详细报告函数
+      const { sendDetailedReport } = await import('./apps/telegram-bot.js');
+      await sendDetailedReport(sitemapChanges);
     }
 
     console.log('✅ 定时监控任务完成');
@@ -147,6 +159,43 @@ async function handleRequest(request, env, ctx) {
       }), {
         headers: { 'Content-Type': 'application/json' }
       });
+    }
+
+    // 强制更新单个sitemap（用于调试）
+    if (path === '/debug/sitemap' && request.method === 'POST') {
+      const body = await request.json();
+      const { url } = body;
+      
+      if (!url) {
+        return new Response(JSON.stringify({
+          status: 'error',
+          message: '请提供sitemap URL'
+        }), {
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      try {
+        const result = await rssManager.downloadSitemap(url, true); // 强制更新
+        return new Response(JSON.stringify({
+          status: 'success',
+          url,
+          result: {
+            success: result.success,
+            newUrls: result.newUrls || [],
+            errorMsg: result.errorMsg
+          }
+        }), {
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        return new Response(JSON.stringify({
+          status: 'error',
+          message: error.message
+        }), {
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
     }
 
     // Telegram Webhook

@@ -143,41 +143,147 @@ export async function sendUpdateNotification(url, newUrls, sitemapContent, targe
 }
 
 /**
- * 发送关键词汇总
- * @param {string[]} allNewUrls - 所有新增的 URL 列表
+ * 发送详细变更报告
+ * @param {Object[]} sitemapChanges - 每个sitemap的变更信息数组
  * @param {string} targetChat - 目标聊天 ID
  * @returns {Promise<void>}
  */
-export async function sendKeywordsSummary(allNewUrls, targetChat = null) {
+export async function sendDetailedReport(sitemapChanges, targetChat = null) {
   const chatId = targetChat || telegramConfig.targetChat;
   if (!chatId) {
     console.error('未配置发送目标，请检查 TELEGRAM_TARGET_CHAT 环境变量');
     return;
   }
 
+  if (!sitemapChanges || sitemapChanges.length === 0) {
+    console.log('没有变更，跳过报告');
+    return;
+  }
+
+  try {
+    let totalNewUrls = 0;
+    
+    // 发送报告标题
+    const reportTitle =
+      `📊 <b>站点变更报告</b>\n` +
+      `====================================\n` +
+      `时间: ${new Date().toLocaleString('zh-CN')}\n` +
+      `共检测到 ${sitemapChanges.length} 个sitemap有变更\n`;
+    
+    await sendMessage(chatId, reportTitle);
+
+    // 处理每个有变更的sitemap
+    for (const change of sitemapChanges) {
+      const { url, newUrls, domain } = change;
+      totalNewUrls += newUrls.length;
+
+      // 发送sitemap变更摘要
+      const sitemapSummary =
+        `🔍 <b>${domain}</b>\n` +
+        `来源: ${url}\n` +
+        `新增页面: ${newUrls.length} 个\n` +
+        `------------------------------------`;
+      
+      await sendMessage(chatId, sitemapSummary);
+
+      // 发送新增页面列表
+      if (newUrls.length > 0) {
+        const urlList = newUrls.map((url, index) => `${index + 1}. ${url}`).join('\n');
+        
+        // 如果URL列表太长，分批发送
+        if (urlList.length > 4000) {
+          const chunks = splitLongMessage(urlList);
+          for (const chunk of chunks) {
+            await sendMessage(chatId, chunk, { disableWebPagePreview: true });
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+        } else {
+          await sendMessage(chatId, urlList, { disableWebPagePreview: true });
+        }
+      }
+
+      // 添加间隔
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+
+    // 发送汇总信息
+    const finalSummary =
+      `✅ <b>报告完成</b>\n` +
+      `====================================\n` +
+      `总计新增页面: ${totalNewUrls} 个\n` +
+      `涉及sitemap: ${sitemapChanges.length} 个\n` +
+      `数据更新时间: ${new Date().toLocaleString('zh-CN')}`;
+
+    await sendMessage(chatId, finalSummary);
+    console.log(`已发送详细变更报告，共 ${totalNewUrls} 个新页面`);
+
+  } catch (error) {
+    console.error('发送详细变更报告失败:', error);
+  }
+}
+
+/**
+ * 分割长消息
+ * @param {string} message - 长消息文本
+ * @returns {string[]} 分割后的消息数组
+ */
+function splitLongMessage(message) {
+  const maxLength = 4000;
+  const chunks = [];
+  let currentChunk = '';
+  
+  const lines = message.split('\n');
+  
+  for (const line of lines) {
+    if ((currentChunk + line).length > maxLength) {
+      if (currentChunk) {
+        chunks.push(currentChunk.trim());
+        currentChunk = '';
+      }
+    }
+    currentChunk += line + '\n';
+  }
+  
+  if (currentChunk.trim()) {
+    chunks.push(currentChunk.trim());
+  }
+  
+  return chunks;
+}
+
+/**
+ * 发送关键词汇总（保留向后兼容）
+ * @param {string[]} allNewUrls - 所有新增的 URL 列表
+ * @param {string} targetChat - 目标聊天 ID
+ * @returns {Promise<void>}
+ */
+export async function sendKeywordsSummary(allNewUrls, targetChat = null) {
+  // 将旧的关键词汇总转换为详细报告格式
   if (!allNewUrls || allNewUrls.length === 0) {
     console.log('没有新的 URL，跳过关键词汇总');
     return;
   }
 
-  try {
-    // 提取关键词（这里简化处理，实际可以根据需要实现更复杂的逻辑）
-    const keywords = extractKeywords(allNewUrls);
-
-    const summaryMessage =
-      `📊 <b>关键词汇总</b>\n` +
-      `------------------------------------\n` +
-      `今日新增内容: ${allNewUrls.length} 条\n` +
-      `主要关键词: ${keywords.join(', ')}\n` +
-      `------------------------------------\n` +
-      `时间: ${new Date().toLocaleString('zh-CN')}`;
-
-    await sendMessage(chatId, summaryMessage);
-    console.log('已发送关键词汇总');
-
-  } catch (error) {
-    console.error('发送关键词汇总失败:', error);
+  // 将URL按域名分组
+  const changesByDomain = {};
+  for (const url of allNewUrls) {
+    try {
+      const domain = new URL(url).hostname;
+      if (!changesByDomain[domain]) {
+        changesByDomain[domain] = {
+          domain,
+          url: `https://${domain}/sitemap.xml`,
+          newUrls: []
+        };
+      }
+      changesByDomain[domain].newUrls.push(url);
+    } catch (error) {
+      console.error(`处理URL失败: ${url}`, error);
+    }
   }
+
+  const sitemapChanges = Object.values(changesByDomain);
+  await sendDetailedReport(sitemapChanges, targetChat);
 }
 
 /**
@@ -356,15 +462,22 @@ async function handleNewsCommand(chatId, rssManager) {
       return;
     }
 
-    await sendMessage(chatId, '开始手动触发关键词汇总...');
+    await sendMessage(chatId, '开始手动触发详细变更报告...');
 
-    const allNewUrls = [];
+    // 用于存储每个sitemap的变更信息
+    const sitemapChanges = [];
+    
     for (const url of feeds) {
       try {
         // 使用 addFeed 方法强制更新，忽略每日限制
         const result = await rssManager.addFeed(url, true);
         if (result.success && result.newUrls && result.newUrls.length > 0) {
-          allNewUrls.push(...result.newUrls);
+          const domain = new URL(url).hostname;
+          sitemapChanges.push({
+            url,
+            domain,
+            newUrls: result.newUrls
+          });
           console.log(`发现 ${result.newUrls.length} 个新URL from ${url}`);
         }
       } catch (error) {
@@ -372,10 +485,10 @@ async function handleNewsCommand(chatId, rssManager) {
       }
     }
 
-    if (allNewUrls.length === 0) {
+    if (sitemapChanges.length === 0) {
       await sendMessage(chatId, '没有发现新的内容');
     } else {
-      await sendKeywordsSummary(allNewUrls, chatId);
+      await sendDetailedReport(sitemapChanges, chatId);
     }
 
   } catch (error) {

@@ -4,7 +4,24 @@
       "Bash(node:*)",
       "Bash(curl:*)",
       "Bash(cat:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(npm run build)",
+      "Bash(npm run)",
+      "Bash(pnpm build)",
+      "Bash(grep:*)",
+      "Bash(cat:*)",
+      "Bash",
+      "Glob",
+      "Grep",
+      "LS",
+      "Read",
+      "Edit",
+      "MultiEdit",
+      "Write",
+      "WebFetch",
+      "WebSearch",
+      "Bash(ls:*)",
+      "WebFetch(domain:stoneknocker.github.io)"
     ],
     "deny": []
   }

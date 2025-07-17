@@ -276,7 +276,18 @@ export class RSSManager {
 
       if (rootTag === 'sitemapindex') {
         console.log(`检测到sitemap索引文件: ${url}`);
-        return await this.processSitemapIndex(url, newContent);
+        // 当通过addFeed方法调用时，已经处理了索引，这里直接返回成功
+        // 避免重复处理
+        if (forceUpdate) {
+          return await this.processSitemapIndex(url, newContent);
+        } else {
+          return {
+            success: true,
+            errorMsg: "检测到sitemap索引文件，已通过addFeed方法处理",
+            datedFile: null,
+            newUrls: []
+          };
+        }
       }
 
       let newUrls = [];
@@ -327,22 +338,7 @@ export class RSSManager {
 
       // 验证是否已存在
       const feeds = await this.getFeeds();
-      if (!feeds.includes(url)) {
-        // 如果是新的 feed，先尝试下载
-        const result = await this.downloadSitemap(url, forceUpdate);
-        if (!result.success) {
-          return result;
-        }
-
-        // 添加到监控列表
-        feeds.push(url);
-        await this.kv.put(this.feedsKey, JSON.stringify(feeds));
-        console.log(`成功添加 sitemap 监控: ${url}`);
-        return {
-          ...result,
-          errorMsg: result.errorMsg || "成功添加"
-        };
-      } else {
+      if (feeds.includes(url)) {
         // 如果 feed 已存在，仍然尝试下载（可能是新的一天或强制更新）
         const result = await this.downloadSitemap(url, forceUpdate);
         if (!result.success) {
@@ -351,6 +347,89 @@ export class RSSManager {
         return {
           ...result,
           errorMsg: forceUpdate ? "强制更新完成" : "已存在的feed更新成功"
+        };
+      }
+
+      // 首先下载sitemap内容以检查是否为索引文件
+      console.log(`下载sitemap内容进行检查: ${url}`);
+      const headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+      };
+
+      const response = await fetch(url, {
+        method: 'GET',
+        headers,
+        cf: { cacheTtl: 300 }
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      let content = url.endsWith('.gz') ? 
+        await new Response(await (await response.body.pipeThrough(new DecompressionStream('gzip'))).getReader().read()).text() :
+        await response.text();
+
+      // 检查是否为sitemap索引文件
+      const doc = parseXML(content);
+      const rootTag = doc.documentElement?.tagName?.toLowerCase();
+
+      if (rootTag === 'sitemapindex') {
+        console.log(`检测到sitemap索引文件，将添加子sitemap: ${url}`);
+        
+        // 处理sitemap索引，添加子sitemap
+        const result = await this.processSitemapIndex(url, content);
+        
+        if (result.success) {
+          return {
+            ...result,
+            errorMsg: `成功处理sitemap索引，已添加 ${result.newFeedsAdded || 0} 个子sitemap到监控列表`,
+            isIndex: true,
+            subSitemaps: result.subSitemaps || 0
+          };
+        } else {
+          return result;
+        }
+      } else if (rootTag === 'urlset') {
+        // 标准sitemap文件，直接添加到监控
+        console.log(`检测到标准sitemap文件: ${url}`);
+        
+        let newUrls = [];
+        
+        // 如果存在 current 文件，比较差异
+        const urlHash = this.generateUrlHash(url);
+        const currentContent = await this.kv.get(`sitemap_current_${urlHash}`);
+        if (currentContent) {
+          newUrls = this.compareSitemaps(content, currentContent);
+          // 将 current 移动到 latest
+          await this.kv.put(`sitemap_latest_${urlHash}`, currentContent);
+        }
+
+        // 保存新文件
+        const today = new Date().toISOString().split('T')[0].replace(/-/g, '');
+        await this.kv.put(`sitemap_current_${urlHash}`, content);
+        await this.kv.put(`sitemap_dated_${urlHash}_${today}`, content);
+
+        // 更新最后更新日期
+        await this.kv.put(`last_update_${urlHash}`, today);
+
+        // 添加到监控列表
+        feeds.push(url);
+        await this.kv.put(this.feedsKey, JSON.stringify(feeds));
+        
+        console.log(`成功添加 sitemap 监控: ${url}`);
+        return {
+          success: true,
+          errorMsg: "成功添加",
+          datedFile: `sitemap_dated_${urlHash}_${today}`,
+          newUrls
+        };
+      } else {
+        return {
+          success: false,
+          errorMsg: "无效的sitemap格式",
+          datedFile: null,
+          newUrls: []
         };
       }
 

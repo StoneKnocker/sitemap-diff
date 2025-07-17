@@ -424,8 +424,12 @@ async function handleRSSCommand(chatId, args, rssManager) {
 
       const result = await rssManager.addFeed(url);
       if (result.success) {
-        await sendMessage(chatId, `成功添加sitemap监控：${url}`);
-        await sendUpdateNotification(url, result.newUrls, null, chatId);
+        if (result.isIndex) {
+          await sendMessage(chatId, `✅ 成功处理sitemap索引：${url}\n📊 已自动添加 ${result.newFeedsAdded || 0} 个子sitemap到监控列表\n📝 共发现 ${result.subSitemaps || 0} 个子sitemap`);
+        } else {
+          await sendMessage(chatId, `成功添加sitemap监控：${url}`);
+          await sendUpdateNotification(url, result.newUrls, null, chatId);
+        }
       } else {
         await sendMessage(chatId, `添加sitemap监控失败：${url}\n原因：${result.errorMsg}`);
       }

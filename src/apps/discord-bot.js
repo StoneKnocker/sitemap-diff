@@ -168,9 +168,13 @@ async function handleDiscordRSSCommand(options, rssManager) {
         return 'URL必须包含sitemap关键词';
       }
 
-      const result = await rssManager.addFeed(url);
+const result = await rssManager.addFeed(url);
       if (result.success) {
-        return `成功添加sitemap监控：${url}`;
+        if (result.isIndex) {
+          return `✅ 成功处理sitemap索引：${url}\n📊 已自动添加 ${result.newFeedsAdded || 0} 个子sitemap到监控列表\n📝 共发现 ${result.subSitemaps || 0} 个子sitemap`;
+        } else {
+          return `成功添加sitemap监控：${url}`;
+        }
       } else {
         return `添加sitemap监控失败：${url}\n原因：${result.errorMsg}`;
       }

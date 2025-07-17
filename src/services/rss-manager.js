@@ -27,6 +27,20 @@ export class RSSManager {
   }
 
   /**
+   * 生成URL的hash值作为唯一标识
+   * @param {string} url - URL字符串
+   * @returns {string} URL的hash值
+   */
+  generateUrlHash(url) {
+    // 使用简单的hash算法：djb2
+    let hash = 5381;
+    for (let i = 0; i < url.length; i++) {
+      hash = ((hash << 5) + hash) + url.charCodeAt(i);
+    }
+    return (hash >>> 0).toString(36); // 转换为base36字符串，更短
+  }
+
+  /**
    * 下载并保存 sitemap 文件
    * @param {string} url - sitemap 的 URL
    * @returns {Promise<Object>} 结果对象
@@ -35,17 +49,17 @@ export class RSSManager {
     try {
       console.log(`尝试下载 sitemap: ${url}`);
 
-      const domain = new URL(url).hostname;
+      const urlHash = this.generateUrlHash(url);
       const today = new Date().toISOString().split('T')[0].replace(/-/g, '');
 
       // 检查今天是否已经更新过
-      const lastUpdateKey = `last_update_${domain}`;
+      const lastUpdateKey = `last_update_${urlHash}`;
       const lastUpdate = await this.kv.get(lastUpdateKey);
 
       if (lastUpdate === today) {
         // 今天已经更新过，比较现有文件
-        const currentContent = await this.kv.get(`sitemap_current_${domain}`);
-        const latestContent = await this.kv.get(`sitemap_latest_${domain}`);
+        const currentContent = await this.kv.get(`sitemap_current_${urlHash}`);
+        const latestContent = await this.kv.get(`sitemap_latest_${urlHash}`);
 
         if (currentContent && latestContent) {
           const newUrls = this.compareSitemaps(currentContent, latestContent);
@@ -96,25 +110,25 @@ export class RSSManager {
       let newUrls = [];
 
       // 如果存在 current 文件，比较差异
-      const currentContent = await this.kv.get(`sitemap_current_${domain}`);
+      const currentContent = await this.kv.get(`sitemap_current_${urlHash}`);
       if (currentContent) {
         newUrls = this.compareSitemaps(newContent, currentContent);
         // 将 current 移动到 latest
-        await this.kv.put(`sitemap_latest_${domain}`, currentContent);
+        await this.kv.put(`sitemap_latest_${urlHash}`, currentContent);
       }
 
       // 保存新文件
-      await this.kv.put(`sitemap_current_${domain}`, newContent);
-      await this.kv.put(`sitemap_dated_${domain}_${today}`, newContent);
+      await this.kv.put(`sitemap_current_${urlHash}`, newContent);
+      await this.kv.put(`sitemap_dated_${urlHash}_${today}`, newContent);
 
       // 更新最后更新日期
       await this.kv.put(lastUpdateKey, today);
 
-      console.log(`sitemap 已保存到 KV: ${domain}`);
+      console.log(`sitemap 已保存到 KV: ${url} (hash: ${urlHash})`);
       return {
         success: true,
         errorMsg: "",
-        datedFile: `sitemap_dated_${domain}_${today}`,
+        datedFile: `sitemap_dated_${urlHash}_${today}`,
         newUrls
       };
 
@@ -236,26 +250,27 @@ export class RSSManager {
 
   /**
    * 获取 sitemap 内容
-   * @param {string} domain - 域名
+   * @param {string} url - sitemap URL
    * @param {string} type - 类型 (current, latest, dated)
    * @param {string} date - 日期 (可选，用于 dated 类型)
    * @returns {Promise<string|null>} sitemap 内容
    */
-  async getSitemapContent(domain, type = 'current', date = null) {
+  async getSitemapContent(url, type = 'current', date = null) {
     try {
+      const urlHash = this.generateUrlHash(url);
       let key;
       switch (type) {
         case 'current':
-          key = `sitemap_current_${domain}`;
+          key = `sitemap_current_${urlHash}`;
           break;
         case 'latest':
-          key = `sitemap_latest_${domain}`;
+          key = `sitemap_latest_${urlHash}`;
           break;
         case 'dated':
           if (!date) {
             date = new Date().toISOString().split('T')[0].replace(/-/g, '');
           }
-          key = `sitemap_dated_${domain}_${date}`;
+          key = `sitemap_dated_${urlHash}_${date}`;
           break;
         default:
           throw new Error(`未知的 sitemap 类型: ${type}`);

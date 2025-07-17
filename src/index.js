@@ -77,8 +77,7 @@ async function performScheduledMonitoring(env) {
           // 获取 sitemap 内容用于发送
           let sitemapContent = null;
           if (result.datedFile) {
-            const domain = new URL(url).hostname;
-            sitemapContent = await rssManager.getSitemapContent(domain, 'dated');
+            sitemapContent = await rssManager.getSitemapContent(url, 'dated');
           }
 
           // 只有在有新URL时才发送更新通知

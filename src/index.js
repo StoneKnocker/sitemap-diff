@@ -12,6 +12,7 @@ import {
   sendDetailedReport
 } from './apps/telegram-bot.js';
 import { handleDiscordInteraction } from './apps/discord-bot.js';
+import { extractURLs } from './services/xml-parser.js';
 
 // 全局变量
 let rssManager = null;
@@ -184,6 +185,125 @@ async function handleRequest(request, env, ctx) {
             success: result.success,
             newUrls: result.newUrls || [],
             errorMsg: result.errorMsg
+          }
+        }), {
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        return new Response(JSON.stringify({
+          status: 'error',
+          message: error.message
+        }), {
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
+    // 重置sitemap监控状态（用于调试）
+    if (path === '/debug/reset' && request.method === 'POST') {
+      const body = await request.json();
+      const { url } = body;
+      
+      if (!url) {
+        return new Response(JSON.stringify({
+          status: 'error',
+          message: '请提供sitemap URL'
+        }), {
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      try {
+        const urlHash = rssManager.generateUrlHash(url);
+        const keys = [
+          `sitemap_current_${urlHash}`,
+          `sitemap_latest_${urlHash}`,
+          `last_update_${urlHash}`
+        ];
+
+        // 删除相关键
+        for (const key of keys) {
+          await env.SITEMAP_STORAGE.delete(key);
+        }
+
+        return new Response(JSON.stringify({
+          status: 'success',
+          message: '已重置sitemap监控状态',
+          url,
+          deletedKeys: keys
+        }), {
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        return new Response(JSON.stringify({
+          status: 'error',
+          message: error.message
+        }), {
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
+    // 查看sitemap监控状态
+    if (path === '/debug/status' && request.method === 'GET') {
+      const url = new URL(request.url).searchParams.get('url');
+      
+      if (!url) {
+        return new Response(JSON.stringify({
+          status: 'error',
+          message: '请提供sitemap URL参数，例如: /debug/status?url=https://example.com/sitemap.xml'
+        }), {
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      try {
+        const urlHash = rssManager.generateUrlHash(url);
+        const today = new Date().toISOString().split('T')[0].replace(/-/g, '');
+
+        const keys = {
+          current: `sitemap_current_${urlHash}`,
+          latest: `sitemap_latest_${urlHash}`,
+          lastUpdate: `last_update_${urlHash}`,
+          dated: `sitemap_dated_${urlHash}_${today}`
+        };
+
+        const results = {};
+        for (const [name, key] of Object.entries(keys)) {
+          const value = await env.SITEMAP_STORAGE.get(key);
+          if (value) {
+            const urls = extractURLs(value);
+            results[name] = {
+              urlCount: urls.length,
+              urls: urls,
+              contentLength: value.length
+            };
+          } else {
+            results[name] = null;
+          }
+        }
+
+        // 获取当前实际sitemap内容
+        const response = await fetch(url);
+        const currentContent = await response.text();
+        const currentUrls = extractURLs(currentContent);
+
+        return new Response(JSON.stringify({
+          status: 'success',
+          url,
+          urlHash,
+          today,
+          storage: results,
+          actual: {
+            urlCount: currentUrls.length,
+            urls: currentUrls,
+            contentLength: currentContent.length
+          },
+          comparison: {
+            shouldDetectChanges: results.current ? 
+              currentUrls.filter(u => !extractURLs(results.current.content || '').includes(u)).length > 0 : true,
+            missingInStorage: results.current ? 
+              currentUrls.filter(u => !extractURLs(results.current.content || '').includes(u)) : currentUrls
           }
         }), {
           headers: { 'Content-Type': 'application/json' }

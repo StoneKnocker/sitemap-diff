@@ -347,7 +347,8 @@ export async function handleTelegramUpdate(update, rssManager) {
             `/rss list - 显示所有监控的sitemap\n` +
             `/rss add URL - 添加sitemap监控\n` +
             `/rss del URL - 删除sitemap监控\n` +
-            `/news - 手动触发关键词汇总`
+            `/reindex - 重新处理所有sitemap索引文件
+/news - 手动触发关键词汇总`
           );
           break;
 
@@ -357,6 +358,10 @@ export async function handleTelegramUpdate(update, rssManager) {
 
         case '/news':
           await handleNewsCommand(chatId, rssManager);
+          break;
+
+        case '/reindex':
+          await handleReindexCommand(chatId, rssManager);
           break;
 
         default:
@@ -445,6 +450,29 @@ async function handleRSSCommand(chatId, args, rssManager) {
 
     default:
       await sendMessage(chatId, '未知的RSS命令，请使用 /rss 查看帮助');
+  }
+}
+
+/**
+ * 处理重新索引命令
+ * @param {string} chatId - 聊天 ID
+ * @param {RSSManager} rssManager - RSS 管理器实例
+ * @returns {Promise<void>}
+ */
+async function handleReindexCommand(chatId, rssManager) {
+  try {
+    await sendMessage(chatId, '开始重新处理所有sitemap索引文件...');
+    
+    const result = await rssManager.reprocessSitemapIndexes();
+    
+    if (result.success) {
+      await sendMessage(chatId, `✅ ${result.message}`);
+    } else {
+      await sendMessage(chatId, `❌ 重新处理失败: ${result.message}`);
+    }
+  } catch (error) {
+    console.error('处理重新索引命令失败:', error);
+    await sendMessage(chatId, '处理重新索引命令失败，请稍后重试');
   }
 }
 

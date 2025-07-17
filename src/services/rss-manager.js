@@ -27,6 +27,62 @@ export class RSSManager {
   }
 
   /**
+   * 重新处理所有sitemap索引文件，确保子sitemap被正确监控
+   * @returns {Promise<Object>} 处理结果
+   */
+  async reprocessSitemapIndexes() {
+    try {
+      const feeds = await this.getFeeds();
+      let totalIndexes = 0;
+      let totalSubSitemaps = 0;
+      let totalNewFeeds = 0;
+
+      console.log('开始重新处理所有sitemap索引文件...');
+
+      for (const feedUrl of feeds) {
+        try {
+          // 获取当前内容
+          const content = await this.getSitemapContent(feedUrl);
+          if (!content) {
+            continue;
+          }
+
+          // 检查是否为sitemap索引文件
+          const doc = parseXML(content);
+          const rootTag = doc.documentElement?.tagName?.toLowerCase();
+
+          if (rootTag === 'sitemapindex') {
+            totalIndexes++;
+            console.log(`发现sitemap索引: ${feedUrl}`);
+            
+            const result = await this.processSitemapIndex(feedUrl, content);
+            if (result.newFeedsAdded) {
+              totalNewFeeds += result.newFeedsAdded;
+            }
+            totalSubSitemaps += result.subSitemaps || 0;
+          }
+        } catch (error) {
+          console.error(`处理sitemap索引失败: ${feedUrl}`, error);
+        }
+      }
+
+      return {
+        success: true,
+        message: `重新处理完成: 发现 ${totalIndexes} 个sitemap索引，包含 ${totalSubSitemaps} 个子sitemap，新增 ${totalNewFeeds} 个监控`,
+        totalIndexes,
+        totalSubSitemaps,
+        totalNewFeeds
+      };
+    } catch (error) {
+      console.error('重新处理sitemap索引失败:', error);
+      return {
+        success: false,
+        message: `重新处理失败: ${error.message}`
+      };
+    }
+  }
+
+  /**
    * 生成URL的hash值作为唯一标识
    * @param {string} url - URL字符串
    * @returns {string} URL的hash值
@@ -66,6 +122,10 @@ export class RSSManager {
       let successCount = 0;
       let errorCount = 0;
 
+      // 获取当前监控列表
+      const feeds = await this.getFeeds();
+      let newFeedsAdded = 0;
+
       // 处理每个子sitemap
       for (const subUrl of subSitemaps) {
         try {
@@ -77,6 +137,15 @@ export class RSSManager {
           }
 
           console.log(`处理子sitemap: ${absoluteUrl}`);
+          
+          // 将子sitemap添加到监控列表（如果不存在）
+          if (!feeds.includes(absoluteUrl)) {
+            feeds.push(absoluteUrl);
+            newFeedsAdded++;
+            console.log(`已将子sitemap添加到监控: ${absoluteUrl}`);
+          }
+
+          // 下载并处理子sitemap
           const result = await this.downloadSitemap(absoluteUrl);
           
           if (result.success) {
@@ -98,13 +167,20 @@ export class RSSManager {
         }
       }
 
+      // 保存更新后的监控列表
+      if (newFeedsAdded > 0) {
+        await this.kv.put(this.feedsKey, JSON.stringify(feeds));
+        console.log(`已自动添加 ${newFeedsAdded} 个子sitemap到监控列表`);
+      }
+
       return {
         success: true,
-        errorMsg: `处理完成: 成功${successCount}个, 失败${errorCount}个`,
+        errorMsg: `处理完成: 成功${successCount}个, 失败${errorCount}个, 新增${newFeedsAdded}个监控`,
         newUrls: totalNewUrls,
         subSitemaps: subSitemaps.length,
         successCount,
-        errorCount
+        errorCount,
+        newFeedsAdded
       };
 
     } catch (error) {

@@ -6,6 +6,7 @@
 export const telegramConfig = {
   token: null, // 从环境变量获取
   targetChat: null, // 从环境变量获取
+  domain: null, // 从环境变量获取
 };
 
 export const discordConfig = {
@@ -19,11 +20,13 @@ export const discordConfig = {
 export function initConfig(env) {
   telegramConfig.token = env.TELEGRAM_BOT_TOKEN || "";
   telegramConfig.targetChat = env.TELEGRAM_TARGET_CHAT || "";
+  telegramConfig.domain = "http://site-bot.emluxy.workers.dev";
   discordConfig.token = env.DISCORD_TOKEN || "";
 
   console.log("配置初始化完成");
   console.log("Telegram Token:", telegramConfig.token ? "已设置" : "未设置");
   console.log("Telegram Target Chat:", telegramConfig.targetChat || "未设置");
+  console.log("Telegram Domain:", telegramConfig.domain || "未设置");
   console.log("Discord Token:", discordConfig.token ? "已设置" : "未设置");
 }
 
@@ -44,6 +47,6 @@ export function validateConfig() {
 
   return {
     isValid: errors.length === 0,
-    errors
+    errors,
   };
-} 
+}

@@ -10,7 +10,8 @@ export function generateReportHTML(reportData) {
     totalNewUrls, 
     totalDomains,
     reportId,
-    summary
+    summary,
+    domain
   } = reportData;
 
   const formattedTime = new Date(timestamp).toLocaleString('zh-CN', {

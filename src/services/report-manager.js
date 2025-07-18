@@ -23,72 +23,92 @@ export class ReportManager {
   }
 
   /**
-   * 生成并保存报告
+   * 生成并保存报告（按域名分组）
    * @param {Object[]} sitemapChanges - 变更数据
-   * @returns {Promise<Object>} 报告信息
+   * @returns {Promise<Object[]>} 报告信息数组，每个域名一个报告
    */
   async generateReport(sitemapChanges) {
     try {
-      const reportId = this.generateReportId();
-      const timestamp = new Date().toISOString();
-      
-      // 计算统计信息
-      const totalNewUrls = sitemapChanges.reduce((sum, change) => sum + change.newUrls.length, 0);
-      const totalDomains = sitemapChanges.length;
-      
-      // 生成报告数据
-      const reportData = {
-        timestamp,
-        sitemapChanges,
-        totalNewUrls,
-        totalDomains,
-        reportId,
-        summary: {
-          processingTime: Math.floor(Math.random() * 1000) + 100 // 模拟处理时间
+      // 按域名分组变更数据
+      const domainGroups = {};
+      for (const change of sitemapChanges) {
+        const domain = change.domain;
+        if (!domainGroups[domain]) {
+          domainGroups[domain] = {
+            domain,
+            changes: [],
+            totalNewUrls: 0
+          };
         }
-      };
+        domainGroups[domain].changes.push(change);
+        domainGroups[domain].totalNewUrls += change.newUrls.length;
+      }
 
-      // 生成HTML报告
-      const htmlContent = generateReportHTML(reportData);
-      
-      // 保存报告到KV存储
-      const reportKey = `report_${reportId}`;
-      const reportInfo = {
-        id: reportId,
-        timestamp,
-        totalNewUrls,
-        totalDomains,
-        sitemapChanges: sitemapChanges.map(change => ({
-          domain: change.domain,
-          url: change.url,
-          newUrlsCount: change.newUrls.length
-        }))
-      };
+      const reports = [];
 
-      // 保存HTML内容
-      await this.kv.put(reportKey, htmlContent);
-      
-      // 保存报告元数据
-      await this.kv.put(`report_meta_${reportId}`, JSON.stringify(reportInfo));
-      
-      // 更新报告列表
-      await this.addToReportsList(reportInfo);
-      
-      console.log(`报告已生成: ${reportId} (${totalNewUrls}个新URL, ${totalDomains}个站点)`);
-      
-      return {
-        success: true,
-        reportId,
-        url: `/reports/${reportId}`,
-        ...reportInfo
-      };
+      // 为每个域名生成独立的报告
+      for (const [domain, group] of Object.entries(domainGroups)) {
+        const reportId = `${domain}_${Date.now().toString(36)}`;
+        const timestamp = new Date().toISOString();
+        
+        // 生成报告数据（仅包含该域名的变更）
+        const reportData = {
+          timestamp,
+          sitemapChanges: group.changes,
+          totalNewUrls: group.totalNewUrls,
+          totalDomains: 1, // 单个域名
+          reportId,
+          domain, // 添加域名标识
+          summary: {
+            processingTime: Math.floor(Math.random() * 1000) + 100
+          }
+        };
+
+        // 生成HTML报告
+        const htmlContent = generateReportHTML(reportData);
+        
+        // 保存报告到KV存储
+        const reportKey = `report_${reportId}`;
+        const reportInfo = {
+          id: reportId,
+          timestamp,
+          totalNewUrls: group.totalNewUrls,
+          totalDomains: 1,
+          domain, // 添加域名标识
+          sitemaps: group.changes.map(change => ({
+            url: change.url,
+            newUrlsCount: change.newUrls.length
+          }))
+        };
+
+        // 保存HTML内容
+        await this.kv.put(reportKey, htmlContent);
+        
+        // 保存报告元数据
+        await this.kv.put(`report_meta_${reportId}`, JSON.stringify(reportInfo));
+        
+        // 更新报告列表
+        await this.addToReportsList(reportInfo);
+        
+        console.log(`域名报告已生成: ${reportId} (${group.totalNewUrls}个新URL, ${domain})`);
+        
+        reports.push({
+          success: true,
+          reportId,
+          domain,
+          url: `/reports/${reportId}`,
+          ...reportInfo
+        });
+      }
+
+      return reports;
 
     } catch (error) {
       console.error('生成报告失败:', error);
-      return {
+      return [{
         success: false,
         error: error.message
-      };
+      }];
     }
   }
 
@@ -139,6 +159,24 @@ export class ReportManager {
       return reports.slice(0, limit);
     } catch (error) {
       console.error('获取报告列表失败:', error);
+      return [];
+    }
+  }
+
+  /**
+   * 获取指定域名的报告列表
+   * @param {string} domain - 域名
+   * @param {number} limit - 限制数量
+   * @returns {Promise<Object[]>} 域名报告列表
+   */
+  async getDomainReports(domain, limit = 20) {
+    try {
+      const allReports = await this.getReportsList(100); // 获取最近的报告
+      const domainReports = allReports.filter(report => report.domain === domain);
+      
+      return domainReports.slice(0, limit);
+    } catch (error) {
+      console.error('获取域名报告列表失败:', error);
       return [];
     }
   }

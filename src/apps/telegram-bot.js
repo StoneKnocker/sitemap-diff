@@ -127,9 +127,7 @@ export async function sendUpdateNotification(
       ]);
 
       if (result.success) {
-        const reportUrl = `https://${
-          telegramConfig.domain || "your-domain.com"
-        }${result.url}`;
+        const reportUrl = `https://${telegramConfig.domain}${result.url}`;
         const message =
           `✨ <b>${domain}</b> 站点更新\n` +
           `------------------------------------\n` +
@@ -236,32 +234,46 @@ export async function sendDetailedReport(
   }
 
   try {
-    // 生成HTML报告
-    const result = await reportManager.generateReport(sitemapChanges);
+    // 生成HTML报告（现在返回多个域名报告）
+    const reports = await reportManager.generateReport(sitemapChanges);
 
-    if (!result.success) {
-      console.error("生成报告失败:", result.error);
-      await sendMessage(chatId, `❌ 生成报告失败: ${result.error}`);
+    if (!reports || reports.length === 0) {
+      console.log("没有生成任何报告");
       return;
     }
 
-    // 生成预览信息
+    // 生成预览信息（用于总体摘要）
     const preview = reportManager.generateReportPreview(sitemapChanges);
-    const reportUrl = `https://${telegramConfig.domain || "your-domain.com"}${
-      result.url
-    }`;
 
-    // 发送简洁的Telegram通知，附带报告链接
-    const message =
-      `📊 <b>站点变更报告</b>\n` +
+    // 发送总体摘要
+    const summaryMessage =
+      `📊 <b>站点变更报告摘要</b>\n` +
       `====================================\n` +
       `🕐 时间: ${new Date().toLocaleString("zh-CN")}\n` +
       `📈 摘要: ${preview.summaryText}\n` +
-      `🔗 查看详情: ${reportUrl}\n\n` +
-      `💡 点击链接查看完整的HTML报告，包含所有新增页面的详细信息`;
+      `📋 共生成 ${reports.length} 个域名报告\n\n` +
+      `💡 以下为各域名详细报告链接：`;
 
-    await sendMessage(chatId, message);
-    console.log(`已发送报告通知，报告ID: ${result.reportId}`);
+    await sendMessage(chatId, summaryMessage);
+
+    // 为每个域名报告发送单独的消息
+    for (const report of reports) {
+      if (!report.success) {
+        console.error("生成报告失败:", report.error);
+        continue;
+      }
+
+      const reportUrl = `https://${telegramConfig.domain}${report.url}`;
+
+      const domainMessage =
+        `🔗 <b>${report.domain}</b>\n` +
+        `新增页面: ${report.totalNewUrls} 个\n` +
+        `查看报告: ${reportUrl}`;
+
+      await sendMessage(chatId, domainMessage);
+    }
+
+    console.log(`已发送 ${reports.length} 个域名报告通知`);
   } catch (error) {
     console.error("发送详细变更报告失败:", error);
     await sendMessage(chatId, `❌ 发送报告失败: ${error.message}`);

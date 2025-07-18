@@ -23,12 +23,14 @@ export function generateReportHTML(reportData) {
     hour12: false
   });
 
+  const title = domain ? `${domain} 站点变更报告` : "站点变更报告";
+  
   return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>站点变更报告 - ${formattedTime}</title>
+    <title>${title} - ${formattedTime}</title>
     <style>
         * {
             margin: 0;
@@ -267,18 +269,19 @@ export function generateReportHTML(reportData) {
 <body>
     <div class="container">
         <div class="header">
-            <h1>🚀 站点变更报告</h1>
+            <h1>🚀 ${title}</h1>
             <div class="subtitle">基于 sitemap 的自动化内容监控系统</div>
             <div>生成时间：${formattedTime}</div>
+            ${domain ? `<div>域名：${domain}</div>` : ''}
         </div>
         
         <div class="summary">
             <h2>📊 摘要</h2>
             <div class="summary-grid">
-                <div class="summary-card">
+                ${domain ? '' : `<div class="summary-card">
                     <h3>${totalDomains}</h3>
                     <p>监控站点</p>
-                </div>
+                </div>`}
                 <div class="summary-card">
                     <h3>${totalNewUrls}</h3>
                     <p>新增页面</p>

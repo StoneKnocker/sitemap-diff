@@ -412,15 +412,23 @@ async function handleRequest(request, env, ctx) {
     // 报告列表
     if (path === "/reports" && request.method === "GET") {
       try {
-        const limit =
-          parseInt(new URL(request.url).searchParams.get("limit")) || 20;
-        const reports = await reportManager.getReportsList(limit);
+        const url = new URL(request.url);
+        const limit = parseInt(url.searchParams.get("limit")) || 20;
+        const domain = url.searchParams.get("domain");
+        
+        let reports;
+        if (domain) {
+          reports = await reportManager.getDomainReports(domain, limit);
+        } else {
+          reports = await reportManager.getReportsList(limit);
+        }
 
         return new Response(
           JSON.stringify({
             status: "success",
             reports,
             count: reports.length,
+            ...(domain && { domain })
           }),
           {
             headers: { "Content-Type": "application/json" },
@@ -519,6 +527,7 @@ async function handleRequest(request, env, ctx) {
           "/webhook/discord - Discord Webhook",
           "/api/status - API 状态",
           "/reports - 报告列表 (GET)",
+          "/reports?domain=example.com - 指定域名报告列表",
           "/reports/:id - 查看报告 (GET)",
           "/admin/cleanup-reports - 清理旧报告 (POST)",
         ],

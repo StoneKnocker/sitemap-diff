@@ -98,6 +98,21 @@ export class RSSManager {
   }
 
   /**
+   * 生成内容hash值用于检测重复内容
+   * @param {string} content - 内容字符串
+   * @returns {string} 内容的hash值
+   */
+  generateContentHash(content) {
+    // 使用简单的hash算法：djb2
+    let hash = 5381;
+    const normalizedContent = content.trim().replace(/\s+/g, ' '); // 标准化内容
+    for (let i = 0; i < normalizedContent.length; i++) {
+      hash = ((hash << 5) + hash) + normalizedContent.charCodeAt(i);
+    }
+    return (hash >>> 0).toString(36);
+  }
+
+  /**
    * 处理sitemap索引文件，提取并监控所有子sitemap
    * @param {string} indexUrl - sitemap索引URL
    * @param {string} indexContent - sitemap索引内容
@@ -290,6 +305,21 @@ export class RSSManager {
         }
       }
 
+      // 生成新内容hash用于重复检测
+      const newContentHash = this.generateContentHash(newContent);
+      
+      // 检查内容是否已存在且相同
+      const currentContentHash = await this.kv.get(`content_hash_${urlHash}`);
+      if (!forceUpdate && currentContentHash === newContentHash) {
+        console.log(`🔄 内容无变化，跳过更新: ${url}`);
+        return {
+          success: true,
+          errorMsg: "内容无变化，跳过更新",
+          datedFile: null,
+          newUrls: []
+        };
+      }
+
       let newUrls = [];
 
       // 如果存在 current 文件，比较差异
@@ -303,6 +333,9 @@ export class RSSManager {
       // 保存新文件
       await this.kv.put(`sitemap_current_${urlHash}`, newContent);
       await this.kv.put(`sitemap_dated_${urlHash}_${today}`, newContent);
+      
+      // 保存内容hash用于下次重复检测
+      await this.kv.put(`content_hash_${urlHash}`, newContentHash);
 
       // 更新最后更新日期
       await this.kv.put(lastUpdateKey, today);

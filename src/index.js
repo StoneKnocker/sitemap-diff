@@ -71,6 +71,7 @@ async function performScheduledMonitoring(env) {
 
     // 用于存储每个sitemap的变更信息
     const sitemapChanges = [];
+    let totalChanges = 0;
 
     for (const url of feeds) {
       try {
@@ -79,6 +80,12 @@ async function performScheduledMonitoring(env) {
         const result = await rssManager.addFeed(url);
 
         if (result.success) {
+          // 跳过内容无变化的情况
+          if (result.errorMsg === "内容无变化，跳过更新") {
+            console.log(`🔄 订阅源 ${url} 内容无变化，跳过`);
+            continue;
+          }
+
           // 获取 sitemap 内容用于发送
           let sitemapContent = null;
           if (result.datedFile) {
@@ -94,6 +101,7 @@ async function performScheduledMonitoring(env) {
               newUrls: result.newUrls,
               sitemapContent,
             });
+            totalChanges += result.newUrls.length;
 
             // 使用新的报告系统发送单个更新通知
             await sendUpdateNotification(
@@ -123,9 +131,11 @@ async function performScheduledMonitoring(env) {
     // 发送详细变更报告（使用新的报告系统）
     if (sitemapChanges.length > 0) {
       console.log(
-        `📊 发送详细变更报告，共 ${sitemapChanges.length} 个sitemap有变更`
+        `📊 发送详细变更报告，共 ${sitemapChanges.length} 个sitemap有变更，总计 ${totalChanges} 个新URL`
       );
       await sendDetailedReport(sitemapChanges, null, reportManager);
+    } else {
+      console.log("📊 本次监控未发现任何变更，跳过发送报告");
     }
 
     console.log("✅ 定时监控任务完成");

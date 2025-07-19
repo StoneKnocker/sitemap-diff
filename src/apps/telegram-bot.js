@@ -136,7 +136,7 @@ export async function sendUpdateNotification(
       console.log(`已发送站点更新通知: ${domain} (${newUrls.length}个新URL)`);
     } else {
       // 使用简化的新格式
-      const message =
+      let message =
         `✨ <b>${domain}</b> 站点更新\n` +
         `------------------------------------\n` +
         `发现新增内容！ (共 ${newUrls.length} 条)\n` +

@@ -89,7 +89,6 @@ export async function sendDocument(chatId, document, filename, caption = "") {
  * @param {string} url - sitemap URL
  * @param {string[]} newUrls - 新增的 URL 列表
  * @param {string} sitemapContent - sitemap 内容
- * @param {string} targetChat - 目标聊天 ID
  * @param {ReportManager} reportManager - 报告管理器实例
  * @returns {Promise<void>}
  */
@@ -97,10 +96,9 @@ export async function sendUpdateNotification(
   url,
   newUrls,
   sitemapContent,
-  targetChat = null,
-  reportManager = null
+  reportManager
 ) {
-  const chatId = targetChat || telegramConfig.targetChat;
+  const chatId = telegramConfig.targetChat;
   if (!chatId) {
     console.error("未配置发送目标，请检查 TELEGRAM_TARGET_CHAT 环境变量");
     return;
@@ -115,96 +113,46 @@ export async function sendUpdateNotification(
   }
 
   try {
-    if (reportManager) {
-      // 使用新的报告格式
-      const result = await reportManager.generateReport([
-        {
-          url,
-          domain,
-          newUrls,
-          sitemapContent,
-        },
-      ]);
+    // 使用新的报告格式
+    const result = await reportManager.generateReport([
+      {
+        url,
+        domain,
+        newUrls,
+        sitemapContent,
+      },
+    ]);
 
-      if (result.success) {
-        const reportUrl = `https://${telegramConfig.domain}${result.url}`;
-        const message =
-          `✨ <b>${domain}</b> 站点更新\n` +
-          `------------------------------------\n` +
-          `发现新增内容！ (共 ${newUrls.length} 条)\n` +
-          `🔗 查看详情: ${reportUrl}\n\n` +
-          `💡 点击链接查看完整的HTML报告`;
+    if (result.success) {
+      const reportUrl = `https://${telegramConfig.domain}${result.url}`;
+      const message =
+        `✨ <b>${domain}</b> 站点更新\n` +
+        `------------------------------------\n` +
+        `发现新增内容！ (共 ${newUrls.length} 条)\n` +
+        `🔗 查看详情: ${reportUrl}\n\n` +
+        `💡 点击链接查看完整的HTML报告`;
 
-        await sendMessage(chatId, message);
-        console.log(`已发送站点更新通知: ${domain} (${newUrls.length}个新URL)`);
-      } else {
-        // 回退到旧格式
-        await sendLegacyUpdateNotification(
-          url,
-          newUrls,
-          sitemapContent,
-          chatId
-        );
+      await sendMessage(chatId, message);
+      console.log(`已发送站点更新通知: ${domain} (${newUrls.length}个新URL)`);
+    } else {
+      // 使用简化的新格式
+      const message =
+        `✨ <b>${domain}</b> 站点更新\n` +
+        `------------------------------------\n` +
+        `发现新增内容！ (共 ${newUrls.length} 条)\n` +
+        `来源: ${url}\n\n` +
+        `新增URL列表:\n` +
+        newUrls
+          .slice(0, 5)
+          .map((u) => `• ${u}`)
+          .join("\n");
+
+      if (newUrls.length > 5) {
+        message += `\n... 还有 ${newUrls.length - 5} 个URL`;
       }
-    } else {
-      // 使用旧格式
-      await sendLegacyUpdateNotification(url, newUrls, sitemapContent, chatId);
+
+      await sendMessage(chatId, message);
     }
-  } catch (error) {
-    console.error(`发送 URL 更新消息失败 for ${url}:`, error);
-  }
-}
-
-/**
- * 旧版更新通知（用于向后兼容）
- * @param {string} url - sitemap URL
- * @param {string[]} newUrls - 新增的 URL 列表
- * @param {string} sitemapContent - sitemap 内容
- * @param {string} chatId - 目标聊天 ID
- */
-async function sendLegacyUpdateNotification(
-  url,
-  newUrls,
-  sitemapContent,
-  chatId
-) {
-  const domain = new URL(url).hostname;
-
-  try {
-    // 构造标题消息
-    const headerMessage =
-      `✨ <b>${domain}</b> ✨\n` +
-      `------------------------------------\n` +
-      `发现新增内容！ (共 ${newUrls.length} 条)\n` +
-      `来源: ${url}\n`;
-
-    // 发送 sitemap 文件
-    if (sitemapContent) {
-      const filename = `${domain}_sitemap_${
-        new Date().toISOString().split("T")[0]
-      }.xml`;
-      await sendDocument(chatId, sitemapContent, filename, headerMessage);
-      console.log(`已发送 sitemap 文件: ${filename} for ${url}`);
-    } else {
-      // 没有文件时，发送文本消息
-      await sendMessage(chatId, headerMessage);
-    }
-
-    // 发送新增的 URL
-    console.log(`开始发送 ${newUrls.length} 个新URL for ${domain}`);
-
-    for (const url of newUrls) {
-      await sendMessage(chatId, url, { disableWebPagePreview: false });
-      console.log(`已发送URL: ${url}`);
-      // 添加延迟避免频率限制
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-    }
-
-    // 发送更新结束消息
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    const endMessage = `✨ ${domain} 更新推送完成 ✨\n------------------------------------`;
-    await sendMessage(chatId, endMessage);
-    console.log(`已发送更新结束消息 for ${domain}`);
   } catch (error) {
     console.error(`发送 URL 更新消息失败 for ${url}:`, error);
   }
@@ -278,64 +226,6 @@ export async function sendDetailedReport(
     console.error("发送详细变更报告失败:", error);
     await sendMessage(chatId, `❌ 发送报告失败: ${error.message}`);
   }
-}
-
-/**
- * 兼容的旧版详细报告（用于向后兼容）
- * @param {Object[]} sitemapChanges - 变更信息数组
- * @param {string} chatId - 聊天ID
- */
-async function sendLegacyDetailedReport(sitemapChanges, chatId) {
-  let totalNewUrls = 0;
-
-  const reportTitle =
-    `📊 <b>站点变更报告</b>\n` +
-    `====================================\n` +
-    `时间: ${new Date().toLocaleString("zh-CN")}\n` +
-    `共检测到 ${sitemapChanges.length} 个sitemap有变更\n`;
-
-  await sendMessage(chatId, reportTitle);
-
-  for (const change of sitemapChanges) {
-    const { url, newUrls, domain } = change;
-    totalNewUrls += newUrls.length;
-
-    const sitemapSummary =
-      `🔍 <b>${domain}</b>\n` +
-      `来源: ${url}\n` +
-      `新增页面: ${newUrls.length} 个\n` +
-      `------------------------------------`;
-
-    await sendMessage(chatId, sitemapSummary);
-
-    if (newUrls.length > 0) {
-      const urlList = newUrls
-        .map((url, index) => `${index + 1}. ${url}`)
-        .join("\n");
-
-      if (urlList.length > 4000) {
-        const chunks = splitLongMessage(urlList);
-        for (const chunk of chunks) {
-          await sendMessage(chatId, chunk, { disableWebPagePreview: true });
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-        }
-      } else {
-        await sendMessage(chatId, urlList, { disableWebPagePreview: true });
-      }
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-  }
-
-  const finalSummary =
-    `✅ <b>报告完成</b>\n` +
-    `====================================\n` +
-    `总计新增页面: ${totalNewUrls} 个\n` +
-    `涉及sitemap: ${sitemapChanges.length} 个\n` +
-    `数据更新时间: ${new Date().toLocaleString("zh-CN")}`;
-
-  await sendMessage(chatId, finalSummary);
-  console.log(`已发送详细变更报告，共 ${totalNewUrls} 个新页面`);
 }
 
 /**
@@ -497,7 +387,6 @@ async function handleRSSCommand(chatId, args, rssManager) {
           );
         } else {
           await sendMessage(chatId, `成功添加sitemap监控：${url}`);
-          await sendUpdateNotification(url, result.newUrls, null, chatId);
         }
       } else {
         await sendMessage(

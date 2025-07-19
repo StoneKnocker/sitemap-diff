@@ -108,7 +108,6 @@ async function performScheduledMonitoring(env) {
               url,
               result.newUrls,
               sitemapContent,
-              null,
               reportManager
             );
             console.log(
@@ -425,7 +424,7 @@ async function handleRequest(request, env, ctx) {
         const url = new URL(request.url);
         const limit = parseInt(url.searchParams.get("limit")) || 20;
         const domain = url.searchParams.get("domain");
-        
+
         let reports;
         if (domain) {
           reports = await reportManager.getDomainReports(domain, limit);
@@ -438,7 +437,7 @@ async function handleRequest(request, env, ctx) {
             status: "success",
             reports,
             count: reports.length,
-            ...(domain && { domain })
+            ...(domain && { domain }),
           }),
           {
             headers: { "Content-Type": "application/json" },
